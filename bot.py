@@ -2,7 +2,7 @@ import logging
 import os
 import asyncio
 from flask import Flask, request
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI
 
@@ -57,36 +57,88 @@ SYSTEM_PROMPT = """
 """
 
 logging.basicConfig(level=logging.INFO)
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Я ИИ-бот")
+    keyboard = [
+        [KeyboardButton("Ассортимент"), KeyboardButton("Подобрать ПК")],
+        [KeyboardButton("Контакты"), KeyboardButton("Помощь")],
+        [KeyboardButton("Спросить ассистента")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    await update.message.reply_text(
+        "Добро пожаловать в магазин компьютеров.\nВыберите действие:",
+        reply_markup=reply_markup
+    )
 
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+
+    if not user_text:
+        await update.message.reply_text("Пожалуйста, выберите действие из меню.")
+        return
+
+    if user_text == "Ассортимент":
+        await update.message.reply_text(
+            "Доступные категории:\n"
+            "• Gaming\n"
+            "• Office\n"
+            "• Budget"
+        )
+        return
+
+    if user_text == "Подобрать ПК":
+        await update.message.reply_text(
+            "Выберите бюджет:\n"
+            "• до 120к\n"
+            "• 120–180к\n"
+            "• 180к+"
+        )
+        return
+
+    if user_text == "Контакты":
+        await update.message.reply_text(
+            "Контакты магазина:\n"
+            "Telegram: @manager\n"
+            "Телефон: +7 XXX XXX XX XX"
+        )
+        return
+
+    if user_text == "Помощь":
+        await update.message.reply_text(
+            "Я могу:\n"
+            "• показать ассортимент\n"
+            "• помочь подобрать ПК\n"
+            "• показать контакты\n"
+            "• передать вопрос ассистенту"
+        )
+        return
+
+    if user_text == "Спросить ассистента":
+        await update.message.reply_text(
+            "Напишите ваш вопрос: например, для каких игр или задач нужен компьютер."
+        )
+        return
+
     user_text_lower = user_text.lower()
 
     if any(word in user_text_lower for word in ["гопник", "мат", "грубо", "оскорбляй"]):
         await update.message.reply_text(
-        "Я придерживаюсь вежливого и профессионального стиля общения."
-    )
+            "Я придерживаюсь вежливого и профессионального стиля общения."
+        )
         return
-    print("DEBUG: отправляем запрос к OpenAI:", user_text)
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5-mini",   # Рабочая модель, 100% доступная
+            model="gpt-5-mini",
             messages=[
-    {"role": "system", "content": SYSTEM_PROMPT},
-    {"role": "user", "content": user_text}
-]
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_text}
+            ]
         )
 
-        # В новых версиях openai-python структура ответа вот такая:
         bot_reply = response.choices[0].message.content
-
-        print("DEBUG: ответ от OpenAI:", bot_reply)
         await update.message.reply_text(bot_reply)
 
     except Exception as e:
@@ -94,11 +146,11 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ошибка OpenAI: " + str(e))
 
 def main():
-    asyncio.run(app.initialize())
-    asyncio.run(app.start())
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer))
+
+    asyncio.run(app.initialize())
+    asyncio.run(app.start())
 
     print("БОТ ЗАПУЩЕН (WEBHOOK)...")
 
