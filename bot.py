@@ -1,8 +1,41 @@
 import logging
+import os
+import asyncio
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI
 
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_KEY")
+
+if not TELEGRAM_TOKEN:
+    raise ValueError("Нет TELEGRAM_TOKEN")
+
+if not OPENAI_KEY:
+    raise ValueError("Нет OPENAI_KEY")
+
+app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+app_flask = Flask(__name__)
+
+client = OpenAI(api_key=OPENAI_KEY)
+
+@app_flask.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def webhook():
+    data = request.get_json()
+
+    if not data:
+        return "no data", 400
+
+    logging.info(f"Получен апдейт: {data}")
+
+    update = Update.de_json(data, app.bot)
+    asyncio.run(app.process_update(update))
+
+    return "ok"
+@app_flask.route("/")
+def home():
+    return "OK"
 SYSTEM_PROMPT = """
 Ты — ИИ-ассистент, который ОБЯЗАН строго соблюдать правила.
 
@@ -22,11 +55,6 @@ SYSTEM_PROMPT = """
 Не говори, что ты ChatGPT или GPT-модель.
 Представляйся как «ИИ-ассистент».
 """
-
-TELEGRAM_TOKEN = ""
-OPENAI_KEY = ""
-
-client = OpenAI(api_key=OPENAI_KEY)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -66,13 +94,14 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ошибка OpenAI: " + str(e))
 
 def main():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    asyncio.run(app.initialize())
+    asyncio.run(app.start())
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer))
 
-    print("БОТ ЗАПУЩЕН И ЖДЁТ СООБЩЕНИЙ...")
-    app.run_polling()
+    print("БОТ ЗАПУЩЕН (WEBHOOK)...")
 
 if __name__ == "__main__":
     main()
+    app_flask.run(host="0.0.0.0", port=8080)
