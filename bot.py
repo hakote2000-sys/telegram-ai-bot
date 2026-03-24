@@ -37,6 +37,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+    user_text_lower = user_text.lower()
+
+    if any(word in user_text_lower for word in ["гопник", "мат", "грубо", "оскорбляй"]):
+        await update.message.reply_text(
+        "Я придерживаюсь вежливого и профессионального стиля общения."
+    )
+        return
     print("DEBUG: отправляем запрос к OpenAI:", user_text)
 
     try:
