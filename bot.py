@@ -3,6 +3,14 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI
 
+SYSTEM_PROMPT = """
+Ты – вежливый, уверенный и полезный ИИ-ассистент. 
+Не говори, что ты ChatGPT или GPT-модель. 
+Представляйся просто как «ИИ-ассистент». 
+Отвечай дружелюбно, но профессионально. 
+Помогай пользователю максимально точно и полно.
+Не упоминай, что работаешь через API.
+"""
 
 TELEGRAM_TOKEN = ""
 OPENAI_KEY = ""
@@ -14,14 +22,6 @@ logging.basicConfig(level=logging.INFO)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Я ИИ-бот")
 
-    SYSTEM_PROMPT = """
-Ты – вежливый, уверенный и полезный ИИ-ассистент. 
-Не говори, что ты ChatGPT или GPT-модель. 
-Представляйся просто как «ИИ-ассистент». 
-Отвечай дружелюбно, но профессионально. 
-Помогай пользователю максимально точно и полно.
-Не упоминай, что работаешь через API.
-"""
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -32,8 +32,9 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = client.chat.completions.create(
             model="gpt-5-mini",   # Рабочая модель, 100% доступная
             messages=[
-                {"role": "user", "content": user_text}
-            ]
+    {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "user", "content": user_text}
+]
         )
 
         # В новых версиях openai-python структура ответа вот такая:
