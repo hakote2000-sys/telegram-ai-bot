@@ -4,7 +4,7 @@ import asyncio
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from openai import AsyncOpenAI
+from openai import OpenAI
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_KEY")
@@ -41,6 +41,18 @@ def webhook():
 @app_flask.route("/")
 def home():
     return "OK"
+
+def ask_openai(user_text: str) -> str:
+    client = OpenAI(api_key=OPENAI_KEY)
+    response = client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text}
+        ]
+    )
+    return response.choices[0].message.content
+
 SYSTEM_PROMPT = """
 Ты — ИИ-ассистент, который ОБЯЗАН строго соблюдать правила.
 
@@ -135,16 +147,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        client = AsyncOpenAI(api_key=OPENAI_KEY)
-        response = await client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_text}
-            ]
-        )
-
-        bot_reply = response.choices[0].message.content
+        bot_reply = await asyncio.to_thread(ask_openai, user_text)
         await update.message.reply_text(bot_reply)
 
     except Exception as e:
