@@ -18,10 +18,7 @@ if not OPENAI_KEY:
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app_flask = Flask(__name__)
 
-client = OpenAI(api_key=OPENAI_KEY)
-
 @app_flask.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-
 def webhook():
     data = request.get_json()
 
@@ -32,8 +29,12 @@ def webhook():
 
     update = Update.de_json(data, app.bot)
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(app.process_update(update))
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(app.process_update(update))
+    finally:
+        loop.close()
 
     return "ok"
 
@@ -77,7 +78,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
+    user_text = update.message.text.strip()
 
     if not user_text:
         await update.message.reply_text("Пожалуйста, выберите действие из меню.")
@@ -134,13 +135,14 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
+        client = OpenAI(api_key=OPENAI_KEY)
         response = client.chat.completions.create(
             model="gpt-5-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_text}
-            ]
-        )
+    ]
+)
 
         bot_reply = response.choices[0].message.content
         await update.message.reply_text(bot_reply)
