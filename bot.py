@@ -4,7 +4,7 @@ import asyncio
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_KEY")
@@ -135,14 +135,14 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        client = OpenAI(api_key=OPENAI_KEY)
-        response = client.chat.completions.create(
+        client = AsyncOpenAI(api_key=OPENAI_KEY)
+        response = await client.chat.completions.create(
             model="gpt-5-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_text}
-    ]
-)
+            ]
+        )
 
         bot_reply = response.choices[0].message.content
         await update.message.reply_text(bot_reply)
