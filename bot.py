@@ -21,6 +21,7 @@ app_flask = Flask(__name__)
 client = OpenAI(api_key=OPENAI_KEY)
 
 @app_flask.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+
 def webhook():
     data = request.get_json()
 
@@ -30,9 +31,12 @@ def webhook():
     logging.info(f"Получен апдейт: {data}")
 
     update = Update.de_json(data, app.bot)
-    asyncio.run(app.process_update(update))
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(app.process_update(update))
 
     return "ok"
+
 @app_flask.route("/")
 def home():
     return "OK"
