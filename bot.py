@@ -7,9 +7,13 @@ from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI
+from sheets_service import get_all_products, get_products_by_category
+from sheets_service import get_products_by_budget
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_KEY")
+
+GOOGLE_SHEETS_CREDENTIALS = "google-credentials.json"
 
 if not TELEGRAM_TOKEN:
     raise ValueError("Нет TELEGRAM_TOKEN")
@@ -76,14 +80,45 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user_text == "Ассортимент":
-        await update.message.reply_text(
-            "Доступные категории:\n"
-            "• Gaming\n"
-            "• Office\n"
-            "• Budget"
-        )
-        return
+        try:
+            products = await asyncio.to_thread(get_all_products)
 
+            if not products:
+                await update.message.reply_text("Сейчас ассортимент пуст.")
+                return
+
+            categories = sorted(set(p["category"] for p in products if p.get("category")))
+            text = "Доступные категории:\n" + "\n".join(f"• {c}" for c in categories)
+            await update.message.reply_text(text)
+        except Exception as e:
+            logging.exception("Ошибка чтения Google Sheets")
+            await update.message.reply_text(f"Ошибка загрузки ассортимента: {e}")
+        return
+    
+    if user_text in ["Gaming", "Office", "Budget"]:
+        try:
+            products = await asyncio.to_thread(get_products_by_category, user_text)
+
+            if not products:
+                await update.message.reply_text(f"В категории {user_text} пока нет товаров.")
+                return
+
+            lines = [f"Категория: {user_text}\n"]
+            for p in products:
+                lines.append(
+                    f"• {p['name']}\n"
+                    f"  Цена: {p['price']} ₽\n"
+                    f"  CPU: {p['cpu']}\n"
+                    f"  GPU: {p['gpu']}\n"
+                    f"  RAM: {p['ram']}\n"
+                    f"  SSD: {p['ssd']}\n"
+                )
+
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            logging.exception("Ошибка чтения категории из Google Sheets")
+            await update.message.reply_text(f"Ошибка загрузки категории: {e}")
+        return
     if user_text == "Подобрать ПК":
         await update.message.reply_text(
             "Выберите бюджет:\n"
@@ -91,6 +126,27 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• 120–180к\n"
             "• 180к+"
         )
+        return
+
+    if user_text == "до 120к":
+        products = await asyncio.to_thread(get_products_by_budget, None, 120000)
+    elif user_text == "120–180к":
+        products = await asyncio.to_thread(get_products_by_budget, 120000, 180000)
+    elif user_text == "180к+":
+        products = await asyncio.to_thread(get_products_by_budget, 180000, None)
+    else:
+        products = None
+
+    if products is not None:
+        if not products:
+            await update.message.reply_text("По этому бюджету вариантов пока нет.")
+            return
+
+        lines = ["Подходящие варианты:\n"]
+        for p in products:
+            lines.append(f"• {p['name']} — {p['price']} ₽")
+
+        await update.message.reply_text("\n".join(lines))
         return
 
     if user_text == "Контакты":
