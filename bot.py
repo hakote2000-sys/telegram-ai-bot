@@ -79,47 +79,47 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пожалуйста, выберите действие из меню.")
         return
 
-    if user_text == "Ассортимент":
+    user_text_lower = user_text.lower().strip()
+
+    if user_text_lower == "ассортимент":
         try:
             products = await asyncio.to_thread(get_all_products)
 
             if not products:
-                await update.message.reply_text("Сейчас ассортимент пуст.")
+                await update.message.reply_text("Ассортимент пока пуст.")
                 return
 
-            categories = sorted(set(p["category"] for p in products if p.get("category")))
+            categories = sorted(set(str(p["category"]).strip() for p in products if p.get("category")))
+
+            keyboard = [[KeyboardButton(c)] for c in categories]
+            keyboard.append([KeyboardButton("Назад")])
+
             text = "Доступные категории:\n" + "\n".join(f"• {c}" for c in categories)
-            await update.message.reply_text(text)
+
+            await update.message.reply_text(
+                text,
+                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            )
         except Exception as e:
-            logging.exception("Ошибка чтения Google Sheets")
+            logging.exception("Ошибка загрузки ассортимента")
             await update.message.reply_text(f"Ошибка загрузки ассортимента: {e}")
         return
-    
-    if user_text in ["Gaming", "Office", "Budget"]:
-        try:
-            products = await asyncio.to_thread(get_products_by_category, user_text)
 
-            if not products:
-                await update.message.reply_text(f"В категории {user_text} пока нет товаров.")
-                return
+    if user_text_lower == "назад":
+        keyboard = [
+            [KeyboardButton("Ассортимент"), KeyboardButton("Подобрать ПК")],
+            [KeyboardButton("Контакты"), KeyboardButton("Помощь")],
+            [KeyboardButton("Спросить ассистента")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-            lines = [f"Категория: {user_text}\n"]
-            for p in products:
-                lines.append(
-                    f"• {p['name']}\n"
-                    f"  Цена: {p['price']} ₽\n"
-                    f"  CPU: {p['cpu']}\n"
-                    f"  GPU: {p['gpu']}\n"
-                    f"  RAM: {p['ram']}\n"
-                    f"  SSD: {p['ssd']}\n"
-                )
-
-            await update.message.reply_text("\n".join(lines))
-        except Exception as e:
-            logging.exception("Ошибка чтения категории из Google Sheets")
-            await update.message.reply_text(f"Ошибка загрузки категории: {e}")
+        await update.message.reply_text(
+            "Главное меню:",
+            reply_markup=reply_markup
+        )
         return
-    if user_text == "Подобрать ПК":
+
+    if user_text_lower == "подобрать пк":
         await update.message.reply_text(
             "Выберите бюджет:\n"
             "• до 120к\n"
@@ -128,28 +128,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if user_text == "до 120к":
-        products = await asyncio.to_thread(get_products_by_budget, None, 120000)
-    elif user_text == "120–180к":
-        products = await asyncio.to_thread(get_products_by_budget, 120000, 180000)
-    elif user_text == "180к+":
-        products = await asyncio.to_thread(get_products_by_budget, 180000, None)
-    else:
-        products = None
-
-    if products is not None:
-        if not products:
-            await update.message.reply_text("По этому бюджету вариантов пока нет.")
-            return
-
-        lines = ["Подходящие варианты:\n"]
-        for p in products:
-            lines.append(f"• {p['name']} — {p['price']} ₽")
-
-        await update.message.reply_text("\n".join(lines))
-        return
-
-    if user_text == "Контакты":
+    if user_text_lower == "контакты":
         await update.message.reply_text(
             "Контакты магазина:\n"
             "Telegram: @manager\n"
@@ -157,7 +136,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if user_text == "Помощь":
+    if user_text_lower == "помощь":
         await update.message.reply_text(
             "Я могу:\n"
             "• показать ассортимент\n"
@@ -167,13 +146,53 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if user_text == "Спросить ассистента":
+    if user_text_lower == "спросить ассистента":
         await update.message.reply_text(
             "Напишите ваш вопрос: например, для каких игр или задач нужен компьютер."
         )
         return
 
-    user_text_lower = user_text.lower()
+    # Категории из таблицы
+    try:
+        products = await asyncio.to_thread(get_all_products)
+        categories_map = {
+            str(p["category"]).strip().lower(): str(p["category"]).strip()
+            for p in products
+            if p.get("category")
+        }
+
+        if user_text_lower in categories_map:
+            real_category = categories_map[user_text_lower]
+            category_products = await asyncio.to_thread(get_products_by_category, real_category)
+
+            if not category_products:
+                await update.message.reply_text(f"В категории {real_category} пока нет товаров.")
+                return
+
+            lines = [f"Категория: {real_category}\n"]
+
+            for p in category_products:
+                lines.append(
+                    f"• {p['name']}\n"
+                    f"  Цена: {p['price']} ₽\n"
+                    f"  CPU: {p['cpu']}\n"
+                    f"  GPU: {p['gpu']}\n"
+                    f"  RAM: {p['ram']}\n"
+                    f"  SSD: {p['ssd']}\n"
+                )
+
+            keyboard = [[KeyboardButton(c)] for c in sorted(categories_map.values())]
+            keyboard.append([KeyboardButton("Назад")])
+
+            await update.message.reply_text(
+                "\n".join(lines),
+                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            )
+            return
+    except Exception as e:
+        logging.exception("Ошибка чтения категорий")
+        await update.message.reply_text(f"Ошибка загрузки категории: {e}")
+        return
 
     if any(word in user_text_lower for word in ["гопник", "мат", "грубо", "оскорбляй"]):
         await update.message.reply_text(
