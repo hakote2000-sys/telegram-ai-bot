@@ -1,6 +1,8 @@
 import logging
 import os
 import asyncio
+import threading
+
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -15,43 +17,10 @@ if not TELEGRAM_TOKEN:
 if not OPENAI_KEY:
     raise ValueError("Нет OPENAI_KEY")
 
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+logging.basicConfig(level=logging.INFO)
+
+telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app_flask = Flask(__name__)
-
-@app_flask.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-def webhook():
-    data = request.get_json()
-
-    if not data:
-        return "no data", 400
-
-    logging.info(f"Получен апдейт: {data}")
-
-    update = Update.de_json(data, app.bot)
-
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(app.process_update(update))
-    finally:
-        loop.close()
-
-    return "ok"
-
-@app_flask.route("/")
-def home():
-    return "OK"
-
-def ask_openai(user_text: str) -> str:
-    client = OpenAI(api_key=OPENAI_KEY)
-    response = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text}
-        ]
-    )
-    return response.choices[0].message.content
 
 SYSTEM_PROMPT = """
 Ты — ИИ-ассистент, который ОБЯЗАН строго соблюдать правила.
@@ -73,7 +42,18 @@ SYSTEM_PROMPT = """
 Представляйся как «ИИ-ассистент».
 """
 
-logging.basicConfig(level=logging.INFO)
+def ask_openai(user_text: str) -> str:
+    client = OpenAI(api_key=OPENAI_KEY)
+    response = client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text}
+        ]
+    )
+    return response.choices[0].message.content
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [KeyboardButton("Ассортимент"), KeyboardButton("Подобрать ПК")],
@@ -86,7 +66,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Добро пожаловать в магазин компьютеров.\nВыберите действие:",
         reply_markup=reply_markup
     )
-
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -149,20 +128,58 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         bot_reply = await asyncio.to_thread(ask_openai, user_text)
         await update.message.reply_text(bot_reply)
-
     except Exception as e:
-        print("ERROR:", e)
+        logging.exception("Ошибка OpenAI")
         await update.message.reply_text("Ошибка OpenAI: " + str(e))
 
-def main():
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer))
 
-    asyncio.run(app.initialize())
-    asyncio.run(app.start())
+telegram_loop = asyncio.new_event_loop()
 
-    print("БОТ ЗАПУЩЕН (WEBHOOK)...")
+async def telegram_startup():
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer))
+
+    await telegram_app.initialize()
+    await telegram_app.start()
+    logging.info("Telegram application started")
+
+
+def run_telegram_loop():
+    asyncio.set_event_loop(telegram_loop)
+    telegram_loop.run_until_complete(telegram_startup())
+    telegram_loop.run_forever()
+
+
+@app_flask.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def webhook():
+    data = request.get_json()
+
+    if not data:
+        return "no data", 400
+
+    logging.info("Получен апдейт: %s", data)
+
+    update = Update.de_json(data, telegram_app.bot)
+
+    future = asyncio.run_coroutine_threadsafe(
+        telegram_app.process_update(update),
+        telegram_loop
+    )
+
+    try:
+        future.result(timeout=15)
+    except Exception as e:
+        logging.exception("Ошибка обработки webhook")
+        return f"error: {e}", 500
+
+    return "ok", 200
+
+
+@app_flask.route("/")
+def home():
+    return "OK", 200
+
 
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=run_telegram_loop, daemon=True).start()
     app_flask.run(host="0.0.0.0", port=8080)
